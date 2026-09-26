@@ -1,0 +1,103 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: marker-azure-gpu
+imagePullSecrets:
+  - name: marker-azure-gpu-ghcr
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: marker-azure-gpu
+  labels:
+    app: marker-azure-gpu
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: marker-azure-gpu
+  template:
+    metadata:
+      labels:
+        app: marker-azure-gpu
+      annotations:
+        marker-azure-gpu/deploy-id: REPLACE_DEPLOY_ID
+    spec:
+      serviceAccountName: marker-azure-gpu
+      automountServiceAccountToken: false
+      containers:
+        - name: api
+          image: REPLACE_IMAGE
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: marker-azure-gpu-config
+          env:
+            - name: AZURE_TENANT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: marker-azure-gpu-secret
+                  key: AZURE_TENANT_ID
+            - name: AZURE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: marker-azure-gpu-secret
+                  key: AZURE_CLIENT_ID
+            - name: AZURE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: marker-azure-gpu-secret
+                  key: AZURE_CLIENT_SECRET
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: '1'
+              memory: 512Mi
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: marker-azure-gpu
+spec:
+  type: ClusterIP
+  selector:
+    app: marker-azure-gpu
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

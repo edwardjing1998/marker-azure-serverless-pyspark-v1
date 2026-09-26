@@ -1,0 +1,11 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: marker-azure-gpu-private
+spec:
+  podSelector:
+    matchLabels:
+      app: marker-azure-gpu
+  policyTypes:
+    - Ingress
+  ingress: []

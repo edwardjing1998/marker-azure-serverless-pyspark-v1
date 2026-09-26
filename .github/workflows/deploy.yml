@@ -1,0 +1,160 @@
+name: Deploy marker-azure-serverless-pyspark
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: development
+    env:
+      OPENSHIFT_SERVER: ${{ vars.OPENSHIFT_SERVER }}
+      OPENSHIFT_NAMESPACE: ${{ vars.OPENSHIFT_NAMESPACE }}
+      OPENSHIFT_TOKEN: ${{ secrets.OPENSHIFT_TOKEN }}
+
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'Chat8GptEducationResource' }}
+      AZURE_CONTAINERAPPS_RESOURCE_GROUP: ${{ vars.AZURE_CONTAINERAPPS_RESOURCE_GROUP || vars.AZURE_RESOURCE_GROUP || 'Chat8GptEducationResource' }}
+      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+      AZURE_CONTAINERAPPS_ENVIRONMENT: ${{ vars.AZURE_CONTAINERAPPS_ENVIRONMENT || 'marker-gpu-env' }}
+      AZURE_GPU_JOB_NAME: ${{ vars.AZURE_GPU_JOB_NAME || 'marker-gpu-worker' }}
+      AZURE_GPU_WORKLOAD_PROFILE_NAME: ${{ vars.AZURE_GPU_WORKLOAD_PROFILE_NAME || 'gpu-t4' }}
+      AZURE_GPU_WORKLOAD_PROFILE_TYPE: ${{ vars.AZURE_GPU_WORKLOAD_PROFILE_TYPE || 'Consumption-GPU-NC8as-T4' }}
+      AZURE_GPU_JOB_CPU: ${{ vars.AZURE_GPU_JOB_CPU || '8' }}
+      AZURE_GPU_JOB_MEMORY: ${{ vars.AZURE_GPU_JOB_MEMORY || '56Gi' }}
+      AZURE_GPU_JOB_TIMEOUT: ${{ vars.AZURE_GPU_JOB_TIMEOUT || '7200' }}
+      AZURE_STORAGE_ACCOUNT: ${{ vars.AZURE_STORAGE_ACCOUNT || 'chat8gpteducationaccount' }}
+      AZURE_STORAGE_ENDPOINT: ${{ vars.AZURE_STORAGE_ENDPOINT }}
+      AZURE_STORAGE_CONTAINER: ${{ vars.AZURE_STORAGE_CONTAINER || 'education' }}
+      AZURE_STORAGE_SOURCE_PREFIX: ${{ vars.AZURE_STORAGE_SOURCE_PREFIX || 'source/' }}
+      AZURE_STORAGE_OUTPUT_PREFIX: ${{ vars.AZURE_STORAGE_OUTPUT_PREFIX || 'generated/' }}
+      GPU_FALLBACK_ENABLED: 'true'
+      MAX_SCAN_FILES: ${{ vars.MAX_SCAN_FILES || '10000' }}
+      MAX_FILE_MB: ${{ vars.MAX_FILE_MB || '200' }}
+      MAX_DOCUMENT_PAGES: ${{ vars.MAX_DOCUMENT_PAGES || '5000' }}
+      CPU_MAX_PAGES: ${{ vars.CPU_MAX_PAGES || '20' }}
+      CPU_MAX_FILE_MB: ${{ vars.CPU_MAX_FILE_MB || '20' }}
+      CPU_TIMEOUT_SECONDS: ${{ vars.CPU_TIMEOUT_SECONDS || '900' }}
+      CPU_MAX_RSS_MB: ${{ vars.CPU_MAX_RSS_MB || '10000' }}
+      MARKER_CACHE_REVISION: ${{ vars.MARKER_CACHE_REVISION || 'azure-serverless-v1' }}
+      GHCR_USERNAME: ${{ vars.GHCR_USERNAME || github.repository_owner }}
+      GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Unit tests
+        run: |
+          python -m pip install -r requirements-dev.txt
+          python -m pytest -q
+          python -m compileall -q api shared worker jobs
+
+      - name: Normalize image names
+        shell: bash
+        run: |
+          GATEWAY="ghcr.io/${GITHUB_REPOSITORY_OWNER}/marker-azure-gpu-gateway"
+          WORKER="ghcr.io/${GITHUB_REPOSITORY_OWNER}/marker-azure-gpu-worker"
+          echo "GATEWAY_IMAGE=${GATEWAY,,}:${GITHUB_SHA}" >> "$GITHUB_ENV"
+          echo "AZURE_GPU_JOB_IMAGE=${WORKER,,}:${GITHUB_SHA}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build gateway image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.gateway
+          push: true
+          tags: ${{ env.GATEWAY_IMAGE }}
+          platforms: linux/amd64
+          cache-from: type=gha,scope=gateway
+          cache-to: type=gha,mode=max,scope=gateway
+
+      - name: Build GPU worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.gpu
+          push: true
+          tags: ${{ env.AZURE_GPU_JOB_IMAGE }}
+          platforms: linux/amd64
+          cache-from: type=gha,scope=gpu-worker
+          cache-to: type=gha,mode=max,scope=gpu-worker
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: >-
+            {"clientId":"${{ secrets.AZURE_CLIENT_ID }}","clientSecret":"${{ secrets.AZURE_CLIENT_SECRET }}","subscriptionId":"${{ vars.AZURE_SUBSCRIPTION_ID }}","tenantId":"${{ secrets.AZURE_TENANT_ID }}"}
+
+      - name: Deploy Azure Container Apps GPU job
+        env:
+          AZURE_GPU_REGISTRY_SERVER: ghcr.io
+          AZURE_GPU_REGISTRY_USERNAME: ${{ env.GHCR_USERNAME }}
+          AZURE_GPU_REGISTRY_PASSWORD: ${{ env.GHCR_PULL_TOKEN }}
+        run: bash azure/deploy_gpu_job.sh
+
+      - name: Install OpenShift CLI
+        uses: redhat-actions/openshift-tools-installer@v1
+        with:
+          oc: latest
+
+      - name: Deploy OpenShift gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+          oc login "$OPENSHIFT_SERVER" --token="$OPENSHIFT_TOKEN"
+          oc project "$OPENSHIFT_NAMESPACE"
+          oc create secret docker-registry marker-azure-gpu-ghcr \
+            --docker-server=ghcr.io \
+            --docker-username="$GHCR_USERNAME" \
+            --docker-password="$GHCR_PULL_TOKEN" \
+            --dry-run=client -o yaml | oc apply -f -
+          oc create secret generic marker-azure-gpu-secret \
+            --from-literal=AZURE_TENANT_ID="$AZURE_TENANT_ID" \
+            --from-literal=AZURE_CLIENT_ID="$AZURE_CLIENT_ID" \
+            --from-literal=AZURE_CLIENT_SECRET="$AZURE_CLIENT_SECRET" \
+            --dry-run=client -o yaml | oc apply -f -
+          oc create configmap marker-azure-gpu-config \
+            --from-literal=AZURE_SUBSCRIPTION_ID="$AZURE_SUBSCRIPTION_ID" \
+            --from-literal=AZURE_CONTAINERAPPS_RESOURCE_GROUP="$AZURE_CONTAINERAPPS_RESOURCE_GROUP" \
+            --from-literal=AZURE_GPU_JOB_NAME="$AZURE_GPU_JOB_NAME" \
+            --from-literal=AZURE_GPU_JOB_IMAGE="$AZURE_GPU_JOB_IMAGE" \
+            --from-literal=AZURE_GPU_JOB_CONTAINER_NAME=marker-gpu \
+            --from-literal=AZURE_GPU_JOB_CPU="$AZURE_GPU_JOB_CPU" \
+            --from-literal=AZURE_GPU_JOB_MEMORY="$AZURE_GPU_JOB_MEMORY" \
+            --from-literal=AZURE_STORAGE_ENDPOINT="$AZURE_STORAGE_ENDPOINT" \
+            --from-literal=AZURE_STORAGE_CONTAINER="$AZURE_STORAGE_CONTAINER" \
+            --from-literal=AZURE_STORAGE_SOURCE_PREFIX="$AZURE_STORAGE_SOURCE_PREFIX" \
+            --from-literal=AZURE_STORAGE_OUTPUT_PREFIX="$AZURE_STORAGE_OUTPUT_PREFIX" \
+            --from-literal=GPU_FALLBACK_ENABLED=true \
+            --from-literal=MAX_SCAN_FILES="$MAX_SCAN_FILES" \
+            --from-literal=MAX_FILE_MB="$MAX_FILE_MB" \
+            --from-literal=MAX_DOCUMENT_PAGES="$MAX_DOCUMENT_PAGES" \
+            --from-literal=CPU_MAX_PAGES="$CPU_MAX_PAGES" \
+            --from-literal=CPU_MAX_FILE_MB="$CPU_MAX_FILE_MB" \
+            --from-literal=CPU_TIMEOUT_SECONDS="$CPU_TIMEOUT_SECONDS" \
+            --from-literal=CPU_MAX_RSS_MB="$CPU_MAX_RSS_MB" \
+            --from-literal=MARKER_CACHE_REVISION="$MARKER_CACHE_REVISION" \
+            --from-literal=RELEASE_ID="$GITHUB_SHA" \
+            --dry-run=client -o yaml | oc apply -f -
+          oc apply -f openshift/network-policy.yml
+          sed -e "s|REPLACE_IMAGE|${GATEWAY_IMAGE}|g" \
+              -e "s|REPLACE_DEPLOY_ID|${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}|g" \
+              openshift/app.yml > openshift/rendered.yml
+          oc apply -f openshift/rendered.yml
+          oc rollout status deployment/marker-azure-gpu --timeout=300s

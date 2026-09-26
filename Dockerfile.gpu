@@ -1,0 +1,19 @@
+FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu22.04
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
+    SPARK_LOCAL_IP=127.0.0.1
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3 python3-pip python3-venv openjdk-17-jre-headless git libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3 /usr/local/bin/python
+WORKDIR /app
+COPY requirements-gpu.txt .
+RUN python -m pip install --upgrade pip setuptools wheel && \
+    python -m pip install -r requirements-gpu.txt
+COPY shared shared
+COPY worker worker
+COPY jobs jobs
+RUN mkdir -p /work/source /work/generated /work/state /tmp/marker-models-v1.10.2
+CMD ["python", "jobs/process_documents.py"]

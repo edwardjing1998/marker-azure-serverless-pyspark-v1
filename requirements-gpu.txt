@@ -1,0 +1,10 @@
+--extra-index-url https://download.pytorch.org/whl/cu126
+torch==2.7.1+cu126
+torchvision==0.22.1+cu126
+marker-pdf==1.10.2
+surya-ocr==0.17.1
+transformers==4.56.2
+psutil>=6,<8
+pyspark==4.0.1
+azure-identity>=1.17,<2
+azure-storage-blob>=12.24,<13
