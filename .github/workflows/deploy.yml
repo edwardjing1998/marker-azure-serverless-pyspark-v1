@@ -11,7 +11,6 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: development
-
     env:
       OPENSHIFT_SERVER: ${{ vars.OPENSHIFT_SERVER }}
       OPENSHIFT_NAMESPACE: ${{ vars.OPENSHIFT_NAMESPACE }}
@@ -21,6 +20,7 @@ jobs:
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
       AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AZURE_DEPLOYER_OBJECT_ID: ${{ vars.AZURE_DEPLOYER_OBJECT_ID }}
 
       AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'Chat8GptEducationResource' }}
       AZURE_CONTAINERAPPS_RESOURCE_GROUP: ${{ vars.AZURE_CONTAINERAPPS_RESOURCE_GROUP || vars.AZURE_RESOURCE_GROUP || 'Chat8GptEducationResource' }}
@@ -56,17 +56,23 @@ jobs:
       GPU_FALLBACK_ENABLED: 'true'
 
       MAX_SCAN_FILES: ${{ vars.MAX_SCAN_FILES || '10000' }}
+
       MAX_FILE_MB: ${{ vars.MAX_FILE_MB || '200' }}
+
       MAX_DOCUMENT_PAGES: ${{ vars.MAX_DOCUMENT_PAGES || '5000' }}
 
       CPU_MAX_PAGES: ${{ vars.CPU_MAX_PAGES || '20' }}
+
       CPU_MAX_FILE_MB: ${{ vars.CPU_MAX_FILE_MB || '20' }}
+
       CPU_TIMEOUT_SECONDS: ${{ vars.CPU_TIMEOUT_SECONDS || '900' }}
+
       CPU_MAX_RSS_MB: ${{ vars.CPU_MAX_RSS_MB || '10000' }}
 
       MARKER_CACHE_REVISION: ${{ vars.MARKER_CACHE_REVISION || 'azure-serverless-v1' }}
 
       GHCR_USERNAME: ${{ vars.GHCR_USERNAME || github.repository_owner }}
+
       GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
 
     steps:
