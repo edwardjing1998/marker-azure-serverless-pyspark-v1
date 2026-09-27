@@ -85,12 +85,43 @@ def parse_args():
     return vars(parser.parse_args())
 
 
-def write_fatal_report(request_id: str, exc: BaseException) -> None:
+def clear_directory(directory: Path) -> None:
     """
-    Best-effort fatal crash report for failures outside the normal report path.
+    Clear the contents of a working directory without deleting
+    the directory itself.
 
-    This allows us to diagnose failures that happen before the normal
-    state-volume report.json is created/uploaded.
+    Azure Container Apps may run the container as a non-root user.
+    Deleting /work or root-owned image directories can therefore fail
+    with PermissionError. The directories themselves are created by
+    Dockerfile.gpu and kept in place.
+    """
+
+    directory.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    for child in directory.iterdir():
+
+        if child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child)
+
+        else:
+            child.unlink()
+
+
+def write_fatal_report(
+    request_id: str,
+    exc: BaseException,
+) -> None:
+    """
+    Best-effort fatal crash report for failures outside the normal
+    report.json path.
+
+    Writes:
+        _marker_jobs/runs/<requestId>/fatal.json
+
+    whenever Azure Blob Storage is still reachable.
     """
 
     request_id = (
@@ -128,6 +159,7 @@ def write_fatal_report(request_id: str, exc: BaseException) -> None:
     )
 
     try:
+
         endpoint = os.environ[
             'AZURE_STORAGE_ENDPOINT'
         ]
@@ -247,28 +279,44 @@ def main():
         )
     )
 
-    if work_root.exists():
-        shutil.rmtree(work_root)
-
-    Path(
+    source_dir = Path(
         config.source_volume
-    ).mkdir(
-        parents=True,
-        exist_ok=True,
     )
 
-    Path(
+    output_dir = Path(
         config.output_volume
-    ).mkdir(
+    )
+
+    state_dir = Path(
+        config.state_volume
+    )
+
+    #
+    # Do NOT delete /work.
+    #
+    # /work and its child directories are created in Dockerfile.gpu.
+    # Azure Container Apps may run as a non-root UID, so deleting
+    # image-created directories can fail with:
+    #
+    # PermissionError: [Errno 13] Permission denied: 'source'
+    #
+    # Instead, preserve the directories and clear only their contents.
+    #
+    work_root.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    Path(
-        config.state_volume
-    ).mkdir(
-        parents=True,
-        exist_ok=True,
+    clear_directory(
+        source_dir
+    )
+
+    clear_directory(
+        output_dir
+    )
+
+    clear_directory(
+        state_dir
     )
 
     print(
@@ -426,7 +474,6 @@ def main():
 
         #
         # Generated content.
-        # content.md naturally uploads last.
         #
         mirror.upload_tree(
             Path(
@@ -470,9 +517,9 @@ def run():
     """
     Top-level process boundary.
 
-    Any exception that occurs before the normal report.json
-    handling is reached is recorded as fatal.json whenever
-    Azure Blob Storage is accessible.
+    Exceptions that occur before the normal report.json handling
+    are written to fatal.json whenever Azure Blob Storage remains
+    accessible.
     """
 
     request_id = os.getenv(
