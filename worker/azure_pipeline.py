@@ -80,7 +80,6 @@ def run_pipeline(config, spark):
                     if gpu_engine is None:
                         gpu_engine = LocalMarker(
                             config.model_cache_dir,
-                            device='cuda',
                         )
                         gpu_engine.preflight()
 
