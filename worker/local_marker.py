@@ -61,8 +61,8 @@ def remove_handwriting_references(document):
     Remove only reachable Handwriting blocks, never their page-image pixels.
 
     The raw JSON is rendered BEFORE this mutation. Walk structure references,
-    not the full children registry (which also contains replaced/inactive
-    blocks).
+    not the full children registry, which also contains replaced/inactive
+    blocks.
     """
 
     removed = []
@@ -71,16 +71,8 @@ def remove_handwriting_references(document):
     def visit(parent):
         kept = []
 
-        for block_id in list(
-            getattr(
-                parent,
-                'structure',
-                None,
-            ) or []
-        ):
-            block = document.get_block(
-                block_id
-            )
+        for block_id in list(getattr(parent, 'structure', None) or []):
+            block = document.get_block(block_id)
 
             if block is None:
                 raise PipelineError(
@@ -93,9 +85,7 @@ def remove_handwriting_references(document):
                 str(block.block_type),
             )
 
-            identifier = str(
-                block.id
-            )
+            identifier = str(block.id)
 
             if name == 'Handwriting':
 
@@ -115,43 +105,24 @@ def remove_handwriting_references(document):
                                 block.polygon.polygon,
 
                             'recognizedText':
-                                block.raw_text(
-                                    document
-                                ),
+                                block.raw_text(document),
                         }
                     )
 
-                visited.add(
-                    identifier
-                )
-
+                visited.add(identifier)
                 continue
 
-            kept.append(
-                block_id
-            )
+            kept.append(block_id)
 
             if identifier not in visited:
-                visited.add(
-                    identifier
-                )
+                visited.add(identifier)
+                visit(block)
 
-                visit(
-                    block
-                )
-
-        if getattr(
-            parent,
-            'structure',
-            None,
-        ) is not None:
-
+        if getattr(parent, 'structure', None) is not None:
             parent.structure = kept
 
     for page in document.pages:
-        visit(
-            page
-        )
+        visit(page)
 
     return removed
 
@@ -162,10 +133,7 @@ class LocalMarker:
         self,
         model_cache_dir='/tmp/marker-models-v1.10.2',
     ):
-        self.model_cache_dir = str(
-            model_cache_dir
-        )
-
+        self.model_cache_dir = str(model_cache_dir)
         self.models = None
         self.device_info = None
         self._torch = None
@@ -205,26 +173,12 @@ class LocalMarker:
             return self.device_info
 
         for name, expected in (
-            (
-                'marker-pdf',
-                MARKER_VERSION,
-            ),
-            (
-                'surya-ocr',
-                SURYA_VERSION,
-            ),
-            (
-                'transformers',
-                TRANSFORMERS_VERSION,
-            ),
-            (
-                'torch',
-                TORCH_VERSION,
-            ),
+            ('marker-pdf', MARKER_VERSION),
+            ('surya-ocr', SURYA_VERSION),
+            ('transformers', TRANSFORMERS_VERSION),
+            ('torch', TORCH_VERSION),
         ):
-            actual = version(
-                name
-            ).split('+')[0]
+            actual = version(name).split('+')[0]
 
             if actual != expected:
                 raise GpuFatalError(
@@ -277,15 +231,11 @@ class LocalMarker:
                 'CUDA wheel compatibility'
             ) from None
 
-        device = torch.cuda.get_device_properties(
-            0
-        )
+        device = torch.cuda.get_device_properties(0)
 
         self.device_info = {
             'device':
-                torch.cuda.get_device_name(
-                    0
-                ),
+                torch.cuda.get_device_name(0),
 
             'cudaRuntime':
                 torch.version.cuda,
@@ -295,8 +245,7 @@ class LocalMarker:
 
             'gpuMemoryGiB':
                 round(
-                    device.total_memory
-                    / 1024 ** 3,
+                    device.total_memory / 1024 ** 3,
                     2,
                 ),
         }
@@ -313,41 +262,17 @@ class LocalMarker:
         #
         # Must happen before importing Marker / Surya settings.
         #
-        os.environ[
-            'TORCH_DEVICE'
-        ] = 'cuda'
+        os.environ['TORCH_DEVICE'] = 'cuda'
+        os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+        os.environ['HF_HUB_DISABLE_TELEMETRY'] = '1'
+        os.environ['DO_NOT_TRACK'] = '1'
+        os.environ['MODEL_CACHE_DIR'] = self.model_cache_dir
+        os.environ['HF_HOME'] = '/tmp/marker-huggingface-v1.10.2'
 
-        os.environ[
-            'TOKENIZERS_PARALLELISM'
-        ] = 'false'
+        os.environ.update(BATCH_CONFIG)
+        os.environ.update(CHECKPOINTS)
 
-        os.environ[
-            'HF_HUB_DISABLE_TELEMETRY'
-        ] = '1'
-
-        os.environ[
-            'DO_NOT_TRACK'
-        ] = '1'
-
-        os.environ[
-            'MODEL_CACHE_DIR'
-        ] = self.model_cache_dir
-
-        os.environ[
-            'HF_HOME'
-        ] = '/tmp/marker-huggingface-v1.10.2'
-
-        os.environ.update(
-            BATCH_CONFIG
-        )
-
-        os.environ.update(
-            CHECKPOINTS
-        )
-
-        Path(
-            self.model_cache_dir
-        ).mkdir(
+        Path(self.model_cache_dir).mkdir(
             parents=True,
             exist_ok=True,
         )
@@ -375,20 +300,14 @@ class LocalMarker:
     @staticmethod
     def page_count(path):
 
-        if Path(
-            path
-        ).suffix.lower() == '.pdf':
+        if Path(path).suffix.lower() == '.pdf':
 
             import pypdfium2 as pdfium
 
             try:
 
-                with pdfium.PdfDocument(
-                    str(path)
-                ) as document:
-                    count = len(
-                        document
-                    )
+                with pdfium.PdfDocument(str(path)) as document:
+                    count = len(document)
 
             except Exception:
                 raise PipelineError(
@@ -407,16 +326,9 @@ class LocalMarker:
 
         try:
 
-            with Image.open(
-                path
-            ) as image:
+            with Image.open(path) as image:
 
-                if getattr(
-                    image,
-                    'n_frames',
-                    1,
-                ) != 1:
-
+                if getattr(image, 'n_frames', 1) != 1:
                     raise PipelineError(
                         'Animated/multi-frame images are unsupported; '
                         'convert to separate source files'
@@ -445,13 +357,7 @@ class LocalMarker:
 
         if (
             not pages
-            or pages
-            != list(
-                range(
-                    pages[0],
-                    pages[-1] + 1,
-                )
-            )
+            or pages != list(range(pages[0], pages[-1] + 1))
         ):
             raise ValueError(
                 'pages must be a nonempty consecutive '
@@ -489,7 +395,6 @@ class LocalMarker:
         }
 
         started = time.monotonic()
-
         document = None
         rendered = None
 
@@ -506,11 +411,7 @@ class LocalMarker:
                     str(path)
                 )
 
-                if [
-                    p.page_id
-                    for p in document.pages
-                ] != pages:
-
+                if [p.page_id for p in document.pages] != pages:
                     raise PipelineError(
                         'Marker returned unexpected pages; '
                         'refusing a partial conversion'
@@ -533,41 +434,21 @@ class LocalMarker:
                         'keep_pagefooter_in_output':
                             True,
                     }
-                )(
-                    document
-                ).model_dump(
-                    mode='json'
-                )
+                )(document).model_dump(mode='json')
 
                 removed = (
-                    remove_handwriting_references(
-                        document
-                    )
+                    remove_handwriting_references(document)
                     if drop_handwriting
                     else []
                 )
 
-                rendered = MarkdownRenderer(
-                    config=config
-                )(
-                    document
-                )
+                rendered = MarkdownRenderer(config=config)(document)
 
-                (
-                    markdown,
-                    extension,
-                    images,
-                ) = text_from_rendered(
+                markdown, extension, images = text_from_rendered(
                     rendered
                 )
 
-                if (
-                    extension != 'md'
-                    or not isinstance(
-                        markdown,
-                        str,
-                    )
-                ):
+                if extension != 'md' or not isinstance(markdown, str):
                     raise PipelineError(
                         'Marker renderer did not return Markdown'
                     )
@@ -576,9 +457,7 @@ class LocalMarker:
 
                 for name, image in images.items():
 
-                    suffix = Path(
-                        name
-                    ).suffix.lower()
+                    suffix = Path(name).suffix.lower()
 
                     image_format = {
                         '.png':
@@ -589,9 +468,7 @@ class LocalMarker:
 
                         '.jpeg':
                             'JPEG',
-                    }.get(
-                        suffix
-                    )
+                    }.get(suffix)
 
                     if image_format is None:
                         raise PipelineError(
@@ -600,20 +477,14 @@ class LocalMarker:
 
                     with io.BytesIO() as buffer:
 
-                        image.convert(
-                            'RGB'
-                        ).save(
+                        image.convert('RGB').save(
                             buffer,
                             format=image_format,
                         )
 
-                        encoded[
-                            name
-                        ] = base64.b64encode(
+                        encoded[name] = base64.b64encode(
                             buffer.getvalue()
-                        ).decode(
-                            'ascii'
-                        )
+                        ).decode('ascii')
 
             return {
                 'pages':
@@ -639,8 +510,7 @@ class LocalMarker:
 
                 'conversionSeconds':
                     round(
-                        time.monotonic()
-                        - started,
+                        time.monotonic() - started,
                         3,
                     ),
 
@@ -660,18 +530,17 @@ class LocalMarker:
 
         except Exception as exc:
             #
-            # IMPORTANT:
+            # Important:
             #
-            # Previous code intentionally hid the underlying
-            # exception:
+            # Previous code hid the underlying exception:
             #
             #   Marker conversion failed (PermissionError)
             #
-            # That prevented us from seeing WHICH local path
-            # caused the PermissionError.
+            # That prevented us from seeing WHICH local path caused
+            # the PermissionError.
             #
-            # Log the full traceback and preserve the actual
-            # exception message in report.json.
+            # Log the full traceback and preserve the real exception
+            # message in report.json.
             #
             print(
                 '[MARKER][CONVERSION][ERROR] '
