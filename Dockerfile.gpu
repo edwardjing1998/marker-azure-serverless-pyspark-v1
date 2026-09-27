@@ -6,20 +6,14 @@ ENV DEBIAN_FRONTEND=noninteractive \
     JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
     SPARK_LOCAL_IP=127.0.0.1
 
-#
-# Writable runtime locations.
-#
-# Azure Container Apps can run this image with a non-root UID.
-# Marker, Hugging Face, PyTorch, temporary document processing,
-# generated output, and state files must therefore use writable
-# locations.
-#
 ENV LOCAL_WORK_ROOT=/tmp/marker-work \
     HOME=/tmp/marker-home \
     XDG_CACHE_HOME=/tmp/marker-cache \
     HF_HOME=/tmp/marker-cache/huggingface \
     TORCH_HOME=/tmp/marker-cache/torch \
-    MODEL_CACHE_DIR=/tmp/marker-models-v1.10.2
+    MODEL_CACHE_DIR=/tmp/marker-models-v1.10.2 \
+    STATIC_ROOT=/tmp/marker-static \
+    STATICFILES_DIRS=/tmp/marker-static
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 \
@@ -43,31 +37,6 @@ COPY shared shared
 COPY worker worker
 COPY jobs jobs
 
-#
-# Create writable runtime directories.
-#
-# The application historically uses:
-#
-#   /work/source
-#   /work/generated
-#   /work/state
-#
-# Rather than changing every class that references those locations,
-# /work is now a compatibility symlink to the writable /tmp area:
-#
-#   /work -> /tmp/marker-work
-#
-# Therefore:
-#
-#   /work/source
-#       -> /tmp/marker-work/source
-#
-#   /work/generated
-#       -> /tmp/marker-work/generated
-#
-#   /work/state
-#       -> /tmp/marker-work/state
-#
 RUN mkdir -p \
       /tmp/marker-work/source \
       /tmp/marker-work/generated \
@@ -76,10 +45,14 @@ RUN mkdir -p \
       /tmp/marker-cache/huggingface \
       /tmp/marker-cache/torch \
       /tmp/marker-models-v1.10.2 \
+      /tmp/marker-static \
+      /usr/local/lib/python3.10/dist-packages/static \
     && chmod -R 0777 /tmp/marker-work \
     && chmod -R 0777 /tmp/marker-home \
     && chmod -R 0777 /tmp/marker-cache \
     && chmod -R 0777 /tmp/marker-models-v1.10.2 \
+    && chmod -R 0777 /tmp/marker-static \
+    && chmod -R 0777 /usr/local/lib/python3.10/dist-packages/static \
     && rm -rf /work \
     && ln -s /tmp/marker-work /work
 
