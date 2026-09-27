@@ -29,71 +29,105 @@ def parse_args():
 
     parser.add_argument(
         '--source-prefix',
-        default=os.getenv('SOURCE_PREFIX', 'source/')
+        default=os.getenv(
+            'SOURCE_PREFIX',
+            'source/',
+        ),
     )
 
     parser.add_argument(
         '--output-prefix',
-        default=os.getenv('OUTPUT_PREFIX', 'generated/')
+        default=os.getenv(
+            'OUTPUT_PREFIX',
+            'generated/',
+        ),
     )
 
     parser.add_argument(
         '--max-files',
-        default=os.getenv('MAX_FILES', '1')
+        default=os.getenv(
+            'MAX_FILES',
+            '1',
+        ),
     )
 
     parser.add_argument(
         '--overwrite',
-        default=os.getenv('OVERWRITE', 'false')
+        default=os.getenv(
+            'OVERWRITE',
+            'false',
+        ),
     )
 
     parser.add_argument(
         '--replace-existing',
-        default=os.getenv('REPLACE_EXISTING', 'false')
+        default=os.getenv(
+            'REPLACE_EXISTING',
+            'false',
+        ),
     )
 
     parser.add_argument(
         '--dry-run',
-        default=os.getenv('DRY_RUN', 'false')
+        default=os.getenv(
+            'DRY_RUN',
+            'false',
+        ),
     )
 
     parser.add_argument(
         '--pages-per-chunk',
-        default=os.getenv('PAGES_PER_CHUNK', '2')
+        default=os.getenv(
+            'PAGES_PER_CHUNK',
+            '2',
+        ),
     )
 
     parser.add_argument(
         '--force-ocr',
-        default=os.getenv('FORCE_OCR', 'false')
+        default=os.getenv(
+            'FORCE_OCR',
+            'false',
+        ),
     )
 
     parser.add_argument(
         '--drop-handwriting',
-        default=os.getenv('DROP_HANDWRITING', 'false')
+        default=os.getenv(
+            'DROP_HANDWRITING',
+            'false',
+        ),
     )
 
     parser.add_argument(
         '--compute-mode',
-        default=os.getenv('COMPUTE_MODE', 'gpu')
+        default=os.getenv(
+            'COMPUTE_MODE',
+            'gpu',
+        ),
     )
 
     parser.add_argument(
         '--request-id',
-        default=os.getenv('REQUEST_ID', '')
+        default=os.getenv(
+            'REQUEST_ID',
+            '',
+        ),
     )
 
-    return vars(parser.parse_args())
+    return vars(
+        parser.parse_args()
+    )
 
 
-def clear_directory(directory: Path) -> None:
+def clear_directory(
+    directory: Path,
+) -> None:
     """
-    Clear the contents of a working directory without deleting
-    the directory itself.
+    Clear a runtime working directory without deleting the directory itself.
 
-    Azure Container Apps may run the container as a non-root user.
-    Deleting /work or root-owned image directories can therefore fail
-    with PermissionError. The directories themselves are created by
-    Dockerfile.gpu and kept in place.
+    The GPU container can run as a non-root UID. We therefore keep the
+    runtime directories in place and delete only their contents.
     """
 
     directory.mkdir(
@@ -103,8 +137,13 @@ def clear_directory(directory: Path) -> None:
 
     for child in directory.iterdir():
 
-        if child.is_dir() and not child.is_symlink():
-            shutil.rmtree(child)
+        if (
+            child.is_dir()
+            and not child.is_symlink()
+        ):
+            shutil.rmtree(
+                child
+            )
 
         else:
             child.unlink()
@@ -115,18 +154,19 @@ def write_fatal_report(
     exc: BaseException,
 ) -> None:
     """
-    Best-effort fatal crash report for failures outside the normal
-    report.json path.
+    Best-effort fatal crash reporting.
 
-    Writes:
+    If the normal report.json path is never reached, attempt to upload:
+
         _marker_jobs/runs/<requestId>/fatal.json
-
-    whenever Azure Blob Storage is still reachable.
     """
 
     request_id = (
         request_id
-        or os.getenv('REQUEST_ID', '')
+        or os.getenv(
+            'REQUEST_ID',
+            '',
+        )
         or 'unknown'
     )
 
@@ -138,18 +178,32 @@ def write_fatal_report(
     trace = traceback.format_exc()
 
     payload = {
-        'requestId': request_id,
-        'status': 'FATAL',
-        'errorType': type(exc).__name__,
-        'error': str(exc),
-        'traceback': trace,
-        'finishedAt': utc_now(),
-        'fatalBlob': fatal_blob,
+        'requestId':
+            request_id,
+
+        'status':
+            'FATAL',
+
+        'errorType':
+            type(exc).__name__,
+
+        'error':
+            str(exc),
+
+        'traceback':
+            trace,
+
+        'finishedAt':
+            utc_now(),
+
+        'fatalBlob':
+            fatal_blob,
     }
 
     print(
-        f"[MARKER][FATAL] "
-        f"{type(exc).__name__}: {exc}",
+        '[MARKER][FATAL] '
+        f'{type(exc).__name__}: '
+        f'{exc}',
         flush=True,
     )
 
@@ -175,7 +229,7 @@ def write_fatal_report(
         )
 
         with tempfile.TemporaryDirectory(
-            prefix='marker-fatal-'
+            prefix='marker-fatal-',
         ) as tmp_dir:
 
             local_file = (
@@ -199,19 +253,19 @@ def write_fatal_report(
             )
 
         print(
-            f"[MARKER][FATAL] "
-            f"crash report written to "
-            f"{fatal_blob}",
+            '[MARKER][FATAL] '
+            'crash report written to '
+            f'{fatal_blob}',
             flush=True,
         )
 
     except Exception as report_exc:
 
         print(
-            f"[MARKER][FATAL] "
-            f"unable to write crash report: "
-            f"{type(report_exc).__name__}: "
-            f"{report_exc}",
+            '[MARKER][FATAL] '
+            'unable to write crash report: '
+            f'{type(report_exc).__name__}: '
+            f'{report_exc}',
             flush=True,
         )
 
@@ -224,38 +278,60 @@ def main():
         os.environ,
         {
             'source_prefix':
-                params['source_prefix'],
+                params[
+                    'source_prefix'
+                ],
 
             'output_prefix':
-                params['output_prefix'],
+                params[
+                    'output_prefix'
+                ],
 
             'max_files':
-                params['max_files'],
+                params[
+                    'max_files'
+                ],
 
             'overwrite':
-                params['overwrite'],
+                params[
+                    'overwrite'
+                ],
 
             'replace_existing':
-                params['replace_existing'],
+                params[
+                    'replace_existing'
+                ],
 
             'dry_run':
-                params['dry_run'],
+                params[
+                    'dry_run'
+                ],
 
             'pages_per_chunk':
-                params['pages_per_chunk'],
+                params[
+                    'pages_per_chunk'
+                ],
 
             'force_ocr':
-                params['force_ocr'],
+                params[
+                    'force_ocr'
+                ],
 
             'drop_handwriting':
-                params['drop_handwriting'],
+                params[
+                    'drop_handwriting'
+                ],
 
             'compute_mode':
-                params['compute_mode'],
+                params[
+                    'compute_mode'
+                ],
 
             'request_id':
-                params['request_id'],
-        }
+                params[
+                    'request_id'
+                ],
+        },
     )
 
     endpoint = os.environ[
@@ -272,10 +348,20 @@ def main():
         container,
     )
 
+    #
+    # LOCAL_WORK_ROOT now defaults to /tmp/marker-work.
+    #
+    # Dockerfile.gpu also creates:
+    #
+    #     /work -> /tmp/marker-work
+    #
+    # Therefore older configuration values referencing /work/source,
+    # /work/generated, or /work/state remain compatible.
+    #
     work_root = Path(
         os.getenv(
             'LOCAL_WORK_ROOT',
-            '/work',
+            '/tmp/marker-work',
         )
     )
 
@@ -291,16 +377,34 @@ def main():
         config.state_volume
     )
 
+    print(
+        '[MARKER] '
+        f'local_work_root={work_root}',
+        flush=True,
+    )
+
+    print(
+        '[MARKER] '
+        f'source_volume={source_dir}',
+        flush=True,
+    )
+
+    print(
+        '[MARKER] '
+        f'output_volume={output_dir}',
+        flush=True,
+    )
+
+    print(
+        '[MARKER] '
+        f'state_volume={state_dir}',
+        flush=True,
+    )
+
     #
-    # Do NOT delete /work.
+    # Never delete /work or LOCAL_WORK_ROOT.
     #
-    # /work and its child directories are created in Dockerfile.gpu.
-    # Azure Container Apps may run as a non-root UID, so deleting
-    # image-created directories can fail with:
-    #
-    # PermissionError: [Errno 13] Permission denied: 'source'
-    #
-    # Instead, preserve the directories and clear only their contents.
+    # Clear only the contents of the individual runtime directories.
     #
     work_root.mkdir(
         parents=True,
@@ -320,22 +424,22 @@ def main():
     )
 
     print(
-        f"[MARKER] "
-        f"Azure Container Apps GPU worker STARTED "
-        f"request_id={config.request_id}",
+        '[MARKER] '
+        'Azure Container Apps GPU worker STARTED '
+        f'request_id={config.request_id}',
         flush=True,
     )
 
     print(
-        f"[MARKER] "
-        f"source_prefix={config.source_prefix} "
-        f"output_prefix={config.output_prefix} "
-        f"compute_mode={config.compute_mode}",
+        '[MARKER] '
+        f'source_prefix={config.source_prefix} '
+        f'output_prefix={config.output_prefix} '
+        f'compute_mode={config.compute_mode}',
         flush=True,
     )
 
     #
-    # Download eligible source documents.
+    # Download eligible source documents from Azure Blob Storage.
     #
     blobs = mirror.list_documents(
         config.source_prefix,
@@ -345,7 +449,8 @@ def main():
     if not blobs:
 
         print(
-            '[MARKER] no source documents found',
+            '[MARKER] '
+            'no source documents found',
             flush=True,
         )
 
@@ -357,11 +462,13 @@ def main():
         )
 
     #
-    # Download existing output subtree if needed.
+    # Download the existing Azure output subtree when needed.
     #
     output_suffix = (
         config.output_prefix[
-            len(config.output_root):
+            len(
+                config.output_root
+            ):
         ]
     )
 
@@ -409,6 +516,18 @@ def main():
 
     except Exception as exc:
 
+        #
+        # Preserve more detail about the conversion exception.
+        #
+        print(
+            '[MARKER][PIPELINE][ERROR] '
+            f'{type(exc).__name__}: '
+            f'{exc}',
+            flush=True,
+        )
+
+        traceback.print_exc()
+
         report = {
             'requestId':
                 config.request_id,
@@ -428,18 +547,11 @@ def main():
             'finishedAt':
                 utc_now(),
 
+            'errorType':
+                type(exc).__name__,
+
             'error':
-                (
-                    str(exc)
-                    if isinstance(
-                        exc,
-                        (
-                            PipelineError,
-                            ValueError,
-                        )
-                    )
-                    else type(exc).__name__
-                ),
+                str(exc),
 
             'reportBlob':
                 (
@@ -452,12 +564,14 @@ def main():
         if not config.dry_run:
 
             write_json(
-                Path(
-                    config.state_volume
-                )
-                / 'runs'
-                / config.request_id
-                / 'report.json',
+                (
+                    Path(
+                        config.state_volume
+                    )
+                    / 'runs'
+                    / config.request_id
+                    / 'report.json'
+                ),
                 report,
             )
 
@@ -468,24 +582,35 @@ def main():
             spark.stop()
 
     #
-    # Upload generated files and state files.
+    # Upload generated files to Azure Blob Storage.
+    #
+    #
+    # IMPORTANT:
+    #
+    # config.output_volume is LOCAL container storage.
+    #
+    # config.output_prefix is the AZURE BLOB prefix.
+    #
+    # Therefore local files can live under:
+    #
+    #     /tmp/marker-work/generated/
+    #
+    # while permanent Azure files still go to:
+    #
+    #     education/generated/...
     #
     if not config.dry_run:
 
-        #
-        # Generated content.
-        #
         mirror.upload_tree(
             Path(
                 config.output_volume
             ),
-            config.output_root.rstrip('/'),
+            config.output_root.rstrip(
+                '/'
+            ),
             content_md_last=True,
         )
 
-        #
-        # Job state/report files.
-        #
         mirror.upload_tree(
             Path(
                 config.state_volume
@@ -498,7 +623,10 @@ def main():
         'MARKER_SUMMARY='
         + json.dumps(
             report,
-            separators=(',', ':'),
+            separators=(
+                ',',
+                ':',
+            ),
         ),
         flush=True,
     )
@@ -515,11 +643,10 @@ def main():
 
 def run():
     """
-    Top-level process boundary.
+    Top-level worker boundary.
 
-    Exceptions that occur before the normal report.json handling
-    are written to fatal.json whenever Azure Blob Storage remains
-    accessible.
+    Exceptions that happen before normal report.json handling are
+    captured in fatal.json whenever Azure Blob Storage is reachable.
     """
 
     request_id = os.getenv(
@@ -546,6 +673,7 @@ def run():
 
 
 if __name__ == '__main__':
+
     raise SystemExit(
         run()
     )
